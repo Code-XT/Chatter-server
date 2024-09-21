@@ -13,6 +13,7 @@ const io = new Server(server, {
 const activeUsers = new Map();
 // Store active rooms
 const activeRooms = new Set(["General", "Random"]); // Default rooms
+const fileChunks = {}; // Store file chunks temporarily
 
 io.on("connection", (socket) => {
   console.log("A user connected");
@@ -55,6 +56,41 @@ io.on("connection", (socket) => {
       activeRooms.add(roomName);
       io.emit("new room", { id: roomName, name: roomName });
     }
+  });
+
+  socket.on(
+    "sendFileChunk",
+    ({ fileName, chunk, chunkIndex, totalChunks, roomId, sender }) => {
+      if (!fileChunks[fileName]) {
+        fileChunks[fileName] = {
+          chunks: [],
+          sender: sender,
+          roomId: roomId,
+        };
+      }
+
+      fileChunks[fileName].chunks[chunkIndex] = Buffer.from(chunk);
+
+      const receivedChunks = fileChunks[fileName].chunks.filter(Boolean).length;
+
+      if (receivedChunks === totalChunks) {
+        const fileBuffer = Buffer.concat(fileChunks[fileName].chunks);
+        io.to(roomId).emit("fileReceived", {
+          fileName,
+          fileData: fileBuffer.toString("base64"),
+          sender: fileChunks[fileName].sender,
+          timestamp: new Date().toLocaleTimeString([], {
+            hour: "2-digit",
+            minute: "2-digit",
+          }),
+        });
+        delete fileChunks[fileName]; // Clean up memory
+      }
+    }
+  );
+
+  socket.on("progressUpdate", ({ fileName, progress, roomId }) => {
+    io.to(roomId).emit("progressUpdate", { fileName, progress });
   });
 
   socket.on("disconnect", () => {
